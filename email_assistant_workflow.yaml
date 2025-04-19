@@ -1,0 +1,100 @@
+name: "智能邮件撰写与自动回复助手"
+description: "自动化处理高频邮件需求，识别意图并生成规范回复"
+type: "workflow"
+
+variables:
+  - key: "email_content"
+    type: "text"
+    label: "邮件内容"
+    required: true
+    description: "输入或上传需要处理的邮件文本内容"
+
+  - key: "tone_style"
+    type: "select"
+    label: "回复语气风格"
+    required: true
+    options:
+      - "正式"
+      - "亲切"
+      - "简洁"
+    default: "正式"
+
+  - key: "require_review"
+    type: "boolean"
+    label: "是否需要人工审核"
+    required: true
+    default: true
+
+nodes:
+  - id: "start"
+    type: "start"
+    next: "intent_analysis"
+
+  - id: "intent_analysis"
+    type: "llm"
+    name: "邮件意图分析"
+    model: "gpt-4"
+    prompt: |
+      请分析以下邮件内容，识别其意图类别：
+      {{email_content}}
+      
+      可能的意图类别包括：
+      - 客户咨询
+      - 内部审批
+      - 请假申请
+      - 会议邀请
+      - 其他
+      
+      请以JSON格式返回分析结果，包含：
+      {
+        "intent": "意图类别",
+        "confidence": "置信度(0-1)",
+        "key_points": ["关键信息点列表"]
+      }
+    next: "generate_reply"
+
+  - id: "generate_reply"
+    type: "llm"
+    name: "生成邮件回复"
+    model: "gpt-4"
+    prompt: |
+      基于以下信息生成邮件回复：
+      
+      原始邮件内容：
+      {{email_content}}
+      
+      意图分析结果：
+      {{intent_analysis.output}}
+      
+      回复要求：
+      - 语气风格：{{tone_style}}
+      - 格式规范：使用标准商务邮件格式
+      - 内容要求：准确回应邮件意图，包含所有必要信息
+      
+      请生成完整的邮件回复内容。
+    next: "review_check"
+
+  - id: "review_check"
+    type: "condition"
+    name: "审核检查"
+    condition: "{{require_review}}"
+    true_next: "human_review"
+    false_next: "send_email"
+
+  - id: "human_review"
+    type: "human"
+    name: "人工审核"
+    description: "请审核并修改生成的邮件回复"
+    next: "send_email"
+
+  - id: "send_email"
+    type: "email"
+    name: "发送邮件"
+    to: "{{email_content.from}}"
+    subject: "Re: {{email_content.subject}}"
+    content: "{{generate_reply.output}}"
+    next: "end"
+
+  - id: "end"
+    type: "end"
+    name: "完成" 

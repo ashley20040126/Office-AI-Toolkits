@@ -1,0 +1,140 @@
+name: 智能合同审阅与风险提示助手
+description: 自动化合同审阅系统，支持合同解析、风险识别和审核摘要生成
+variables:
+  - name: contract_type
+    type: string
+    label: 合同类型
+    required: true
+    options:
+      - 采购合同
+      - 服务合同
+      - 租赁合同
+      - 劳动合同
+      - 其他
+  - name: focus_clauses
+    type: array
+    label: 重点关注条款
+    required: true
+    options:
+      - 付款条款
+      - 违约责任
+      - 知识产权
+      - 保密条款
+      - 争议解决
+      - 其他
+  - name: auto_risk_detection
+    type: boolean
+    label: 是否自动识别风险
+    required: true
+    default: true
+  - name: risk_threshold
+    type: number
+    label: 风险阈值
+    required: false
+    default: 0.7
+    min: 0
+    max: 1
+    step: 0.1
+
+nodes:
+  - id: start
+    type: start
+    next: file_upload
+
+  - id: file_upload
+    type: file_upload
+    label: 上传合同文件
+    description: 支持PDF和Word格式的合同文件上传
+    accept:
+      - .pdf
+      - .doc
+      - .docx
+    next: text_extraction
+
+  - id: text_extraction
+    type: document_extractor
+    label: 文本提取
+    description: 将上传的合同文件转换为纯文本
+    input: file_upload.file
+    output: extracted_text
+    next: basic_info_extraction
+
+  - id: basic_info_extraction
+    type: llm
+    label: 提取基础信息
+    description: 识别合同中的基础信息，如甲乙方、金额、期限等
+    model: gpt-4
+    prompt: |
+      请从以下合同文本中提取关键基础信息：
+      1. 合同双方名称
+      2. 合同金额
+      3. 合同期限
+      4. 合同签署日期
+      5. 合同编号（如有）
+      
+      合同文本：
+      {{extracted_text}}
+    output: basic_info
+    next: clause_analysis
+
+  - id: clause_analysis
+    type: llm
+    label: 条款分析
+    description: 分析合同关键条款并识别潜在风险
+    model: gpt-4
+    prompt: |
+      请分析以下合同文本，重点关注{{focus_clauses}}等条款，识别潜在风险：
+      
+      1. 合同类型：{{contract_type}}
+      2. 重点关注条款：{{focus_clauses}}
+      3. 合同文本：{{extracted_text}}
+      
+      请按以下格式输出分析结果：
+      1. 关键条款分析
+      2. 潜在风险点
+      3. 风险等级评估
+    output: clause_analysis
+    next: risk_assessment
+
+  - id: risk_assessment
+    type: llm
+    label: 风险评估
+    description: 评估合同风险并提供修改建议
+    model: gpt-4
+    prompt: |
+      基于以下信息进行风险评估：
+      1. 合同基础信息：{{basic_info}}
+      2. 条款分析结果：{{clause_analysis}}
+      3. 风险阈值：{{risk_threshold}}
+      
+      请提供：
+      1. 总体风险评分（0-100）
+      2. 高风险条款列表
+      3. 具体修改建议
+    output: risk_assessment
+    next: generate_report
+
+  - id: generate_report
+    type: llm
+    label: 生成审阅报告
+    description: 生成结构化审阅报告
+    model: gpt-4
+    prompt: |
+      请基于以下信息生成一份结构化的合同审阅报告：
+      
+      1. 合同基础信息：{{basic_info}}
+      2. 条款分析：{{clause_analysis}}
+      3. 风险评估：{{risk_assessment}}
+      
+      报告应包含：
+      1. 合同概要
+      2. 关键条款分析
+      3. 风险提示
+      4. 修改建议
+      5. 总体评估
+    output: final_report
+    next: end
+
+  - id: end
+    type: end
+    label: 完成 

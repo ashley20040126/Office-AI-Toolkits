@@ -1,0 +1,116 @@
+name: meeting-minutes-assistant
+description: Automatically generate and distribute meeting minutes with action items
+type: workflow
+
+variables:
+  - key: meeting_title
+    type: text
+    name: Meeting Title
+    required: true
+  - key: meeting_date
+    type: text
+    name: Meeting Date
+    required: true
+  - key: attendees
+    type: text
+    name: Attendees List
+    description: Enter attendee names separated by commas
+    required: true
+  - key: meeting_file
+    type: file
+    name: Meeting Recording/Notes
+    description: Upload meeting recording (MP3/M4A) or notes (PDF/DOCX/TXT)
+    required: true
+    file_types: ["audio/*", "application/pdf", "text/*", ".docx"]
+  - key: webhook_url
+    type: text
+    name: Webhook URL
+    description: Slack/Teams webhook URL for sending minutes
+    required: true
+
+nodes:
+  - id: start
+    type: start
+    data:
+      input_schema:
+        meeting_title: "{{meeting_title}}"
+        meeting_date: "{{meeting_date}}"
+        attendees: "{{attendees}}"
+        file: "{{meeting_file}}"
+    next: process_file
+
+  - id: process_file
+    type: document_extractor
+    data:
+      input: "{{meeting_file}}"
+      output_variable: meeting_content
+    next: summarize_content
+
+  - id: summarize_content
+    type: llm
+    data:
+      model: gpt-4
+      temperature: 0.3
+      system: |
+        You are a professional meeting minutes summarizer. Extract and organize:
+        1. Key discussion topics
+        2. Main decisions made
+        3. Action items with assignees and deadlines
+        Format the output in clear Markdown sections.
+      user: |
+        Meeting: {{meeting_title}}
+        Date: {{meeting_date}}
+        Attendees: {{attendees}}
+
+        Content:
+        {{meeting_content}}
+    next: format_minutes
+
+  - id: format_minutes
+    type: template
+    data:
+      template: |
+        # {{meeting_title}}
+
+        **Date:** {{meeting_date}}
+        **Attendees:** {{attendees}}
+
+        ## Summary
+        {{summarize_content.output}}
+
+        ## Action Items
+        {{#each action_items}}
+        - [ ] @{{assignee}}: {{task}} (Due: {{deadline}})
+        {{/each}}
+    next: send_webhook
+
+  - id: send_webhook
+    type: http_request
+    data:
+      method: POST
+      url: "{{webhook_url}}"
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "text": "{{format_minutes.output}}"
+        }
+    next: end
+
+  - id: end
+    type: end
+    data:
+      output: "{{format_minutes.output}}"
+
+edges:
+  - from: start
+    to: process_file
+  - from: process_file
+    to: summarize_content
+  - from: summarize_content
+    to: format_minutes
+  - from: format_minutes
+    to: send_webhook
+  - from: send_webhook
+    to: end
+

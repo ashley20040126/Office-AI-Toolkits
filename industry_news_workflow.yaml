@@ -1,0 +1,178 @@
+name: 行业新闻与竞品情报速递助手
+description: 自动抓取行业资讯和竞品新闻，生成摘要并输出简报
+type: workflow
+variables:
+  - name: keywords
+    type: string
+    label: 关键词
+    description: 用于筛选相关新闻的关键词，多个关键词用逗号分隔
+    default: "行业动态,竞品分析,市场趋势"
+  - name: summary_period
+    type: string
+    label: 汇总周期
+    description: 简报的汇总周期
+    default: "daily"
+    options:
+      - daily
+      - weekly
+  - name: delivery_method
+    type: string
+    label: 发送方式
+    description: 简报的发送方式
+    default: "email"
+    options:
+      - email
+      - notion
+      - slack
+  - name: email_recipients
+    type: string
+    label: 邮件接收人
+    description: 接收简报的邮箱地址，多个地址用逗号分隔
+    default: ""
+  - name: notion_database_id
+    type: string
+    label: Notion数据库ID
+    description: 用于存储简报的Notion数据库ID
+    default: ""
+  - name: slack_channel
+    type: string
+    label: Slack频道
+    description: 发送简报的Slack频道
+    default: ""
+
+nodes:
+  - id: start
+    type: start
+    next: fetch_news
+
+  - id: fetch_news
+    type: http_request
+    name: 抓取新闻
+    config:
+      url: "https://newsapi.org/v2/everything"
+      method: GET
+      params:
+        q: "{{variables.keywords}}"
+        language: "zh"
+        sortBy: "publishedAt"
+        apiKey: "{{secrets.NEWS_API_KEY}}"
+    next: generate_summaries
+
+  - id: generate_summaries
+    type: llm
+    name: 生成摘要
+    config:
+      model: "gpt-3.5-turbo"
+      prompt: |
+        请对以下新闻内容生成简洁的摘要，突出关键信息：
+        {{fetch_news.response.articles}}
+        
+        要求：
+        1. 每个新闻摘要不超过100字
+        2. 包含关键数据和事实
+        3. 去除无关信息
+    next: filter_content
+
+  - id: filter_content
+    type: llm
+    name: 内容过滤
+    config:
+      model: "gpt-3.5-turbo"
+      prompt: |
+        请根据以下标准过滤新闻内容：
+        1. 与行业或竞品高度相关
+        2. 包含实质性信息
+        3. 去除重复或冗余内容
+        
+        需要过滤的内容：
+        {{generate_summaries.response}}
+    next: generate_trend_analysis
+
+  - id: generate_trend_analysis
+    type: llm
+    name: 趋势分析
+    config:
+      model: "gpt-3.5-turbo"
+      prompt: |
+        基于以下新闻摘要，生成行业趋势分析：
+        {{filter_content.response}}
+        
+        要求：
+        1. 分析主要趋势和变化
+        2. 指出潜在机会和风险
+        3. 提供简要建议
+    next: format_report
+
+  - id: format_report
+    type: template
+    name: 格式化报告
+    config:
+      template: |
+        # {{summary_period}}行业新闻与竞品情报简报
+        ## 新闻摘要
+        {{filter_content.response}}
+        
+        ## 趋势分析
+        {{generate_trend_analysis.response}}
+        
+        生成时间：{{now}}
+    next: deliver_report
+
+  - id: deliver_report
+    type: condition
+    name: 发送报告
+    config:
+      conditions:
+        - condition: "{{variables.delivery_method}} == 'email'"
+          next: send_email
+        - condition: "{{variables.delivery_method}} == 'notion'"
+          next: send_to_notion
+        - condition: "{{variables.delivery_method}} == 'slack'"
+          next: send_to_slack
+
+  - id: send_email
+    type: email
+    name: 发送邮件
+    config:
+      to: "{{variables.email_recipients}}"
+      subject: "{{summary_period}}行业新闻与竞品情报简报"
+      content: "{{format_report.response}}"
+    next: end
+
+  - id: send_to_notion
+    type: http_request
+    name: 发送到Notion
+    config:
+      url: "https://api.notion.com/v1/pages"
+      method: POST
+      headers:
+        Authorization: "Bearer {{secrets.NOTION_API_KEY}}"
+        Content-Type: "application/json"
+      body:
+        parent:
+          database_id: "{{variables.notion_database_id}}"
+        properties:
+          title:
+            title:
+              - text:
+                  content: "{{summary_period}}行业新闻与竞品情报简报"
+          content:
+            rich_text:
+              - text:
+                  content: "{{format_report.response}}"
+    next: end
+
+  - id: send_to_slack
+    type: http_request
+    name: 发送到Slack
+    config:
+      url: "{{secrets.SLACK_WEBHOOK_URL}}"
+      method: POST
+      body:
+        channel: "{{variables.slack_channel}}"
+        text: "{{format_report.response}}"
+    next: end
+
+  - id: end
+    type: end
+    name: 结束 

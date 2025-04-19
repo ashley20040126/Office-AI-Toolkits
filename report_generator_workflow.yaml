@@ -1,0 +1,139 @@
+name: 智能日报/周报生成助手
+description: 根据用户输入的工作内容自动生成标准化的日报或周报
+variables:
+  - name: report_type
+    type: string
+    label: 汇报周期
+    required: true
+    options:
+      - label: 日报
+        value: daily
+      - label: 周报
+        value: weekly
+  - name: user_input
+    type: string
+    label: 工作内容描述
+    required: true
+  - name: recipient_email
+    type: string
+    label: 接收邮箱
+    required: true
+  - name: report_date
+    type: string
+    label: 报告日期
+    required: true
+nodes:
+  - id: start
+    type: start
+    position:
+      x: 100
+      y: 100
+    data:
+      variables:
+        report_type: ${report_type}
+        user_input: ${user_input}
+        recipient_email: ${recipient_email}
+        report_date: ${report_date}
+
+  - id: content_extraction
+    type: llm
+    position:
+      x: 300
+      y: 100
+    data:
+      model: gpt-4
+      prompt: |
+        请从以下工作内容描述中提取结构化信息：
+        1. 已完成的工作
+        2. 存在的问题
+        3. 未来计划
+        
+        工作内容：${user_input}
+        
+        请以JSON格式输出，包含以下字段：
+        {
+          "completed_work": [],
+          "issues": [],
+          "future_plans": []
+        }
+      temperature: 0.7
+      max_tokens: 1000
+
+  - id: content_polishing
+    type: llm
+    position:
+      x: 500
+      y: 100
+    data:
+      model: gpt-4
+      prompt: |
+        请对以下内容进行专业化的语言润色，保持简洁明了：
+        
+        已完成工作：${content_extraction.completed_work}
+        存在问题：${content_extraction.issues}
+        未来计划：${content_extraction.future_plans}
+        
+        请保持专业语气，使用简洁的商务用语。
+      temperature: 0.7
+      max_tokens: 1000
+
+  - id: report_generation
+    type: llm
+    position:
+      x: 700
+      y: 100
+    data:
+      model: gpt-4
+      prompt: |
+        请根据以下内容生成${report_type}报告，使用Markdown格式：
+        
+        日期：${report_date}
+        已完成工作：${content_polishing.completed_work}
+        存在问题：${content_polishing.issues}
+        未来计划：${content_polishing.future_plans}
+        
+        要求：
+        1. 使用标准的Markdown格式
+        2. 包含清晰的标题和分段
+        3. 使用列表格式展示内容
+        4. 保持专业、简洁的风格
+      temperature: 0.7
+      max_tokens: 2000
+
+  - id: email_sender
+    type: http_request
+    position:
+      x: 900
+      y: 100
+    data:
+      method: POST
+      url: https://api.email-service.com/send
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "to": "${recipient_email}",
+          "subject": "${report_type}报告 - ${report_date}",
+          "content": "${report_generation.output}",
+          "format": "markdown"
+        }
+
+  - id: end
+    type: end
+    position:
+      x: 1100
+      y: 100
+    data:
+      output: ${report_generation.output}
+
+edges:
+  - source: start
+    target: content_extraction
+  - source: content_extraction
+    target: content_polishing
+  - source: content_polishing
+    target: report_generation
+  - source: report_generation
+    target: email_sender
+  - source: email_sender
+    target: end 

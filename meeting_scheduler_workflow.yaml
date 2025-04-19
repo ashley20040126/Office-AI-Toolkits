@@ -1,0 +1,114 @@
+name: 智能日程协调与会议安排机器人
+description: 自动分析日历数据，协调空闲时间，并发送会议邀请
+variables:
+  - name: meeting_subject
+    type: string
+    label: 会议主题
+    required: true
+  - name: participants
+    type: array
+    label: 参与人列表
+    required: true
+    items:
+      type: object
+      properties:
+        name:
+          type: string
+          label: 姓名
+        email:
+          type: string
+          label: 邮箱
+  - name: time_range
+    type: object
+    label: 时间区间
+    required: true
+    properties:
+      start:
+        type: string
+        label: 开始时间
+        format: date-time
+      end:
+        type: string
+        label: 结束时间
+        format: date-time
+  - name: meeting_duration
+    type: integer
+    label: 会议时长(分钟)
+    required: true
+    default: 60
+
+nodes:
+  - id: start
+    type: start
+    next: analyze_calendar
+
+  - id: analyze_calendar
+    type: code
+    name: 分析日历数据
+    code: |
+      // 模拟日历API调用，实际应用中替换为真实API
+      const findAvailableSlots = (participants, timeRange, duration) => {
+        // 这里应该调用实际的日历API
+        // 返回格式化的可用时间段
+        return [
+          {
+            start: "2024-03-20T10:00:00",
+            end: "2024-03-20T11:00:00"
+          },
+          {
+            start: "2024-03-20T14:00:00",
+            end: "2024-03-20T15:00:00"
+          }
+        ];
+      };
+      
+      const availableSlots = findAvailableSlots(
+        variables.participants,
+        variables.time_range,
+        variables.meeting_duration
+      );
+      
+      return { available_slots: availableSlots };
+    next: generate_invitation
+
+  - id: generate_invitation
+    type: llm
+    name: 生成会议邀请
+    model: gpt-3.5-turbo
+    prompt: |
+      请根据以下信息生成一份专业的会议邀请邮件：
+      
+      会议主题：{{meeting_subject}}
+      参与人：{{participants}}
+      建议时间段：{{available_slots}}
+      会议时长：{{meeting_duration}}分钟
+      
+      请使用正式、专业的语气，包含所有必要信息。
+    next: send_invitation
+
+  - id: send_invitation
+    type: code
+    name: 发送会议邀请
+    code: |
+      // 模拟邮件发送，实际应用中替换为真实邮件API
+      const sendEmail = (to, subject, content) => {
+        // 这里应该调用实际的邮件API
+        console.log(`Sending email to ${to} with subject: ${subject}`);
+        return true;
+      };
+      
+      const invitationContent = variables.llm_output;
+      
+      variables.participants.forEach(participant => {
+        sendEmail(
+          participant.email,
+          `会议邀请：${variables.meeting_subject}`,
+          invitationContent
+        );
+      });
+      
+      return { status: "success" };
+    next: end
+
+  - id: end
+    type: end 
